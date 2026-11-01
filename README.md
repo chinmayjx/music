@@ -15,3 +15,20 @@ Runs on the Lenovo (Pop!_OS, x86, Surge XT) at `https://lenovo.tail0e5368.ts.net
 - `POST /transcribe`: multipart `file` (any audio), `scale=true|false`, optional `bpm` -> notes and key
 
 Layout: `studio/` is the service and the shared code (Surge loading, pitch tracking); `produce/` holds the devbox-side scripts and `laptop/` the one-off track scripts from the first experiments.
+
+## web components (`web/music.js`)
+
+For HTML artifacts; no dependencies. Load a tagged version from jsDelivr:
+
+```html
+<script src="https://cdn.jsdelivr.net/gh/chinmayjx/music@v0.1.0/web/music.js"></script>
+<music-keyboard start="C4" octaves="2" bpm="100" count-in="1" save-to="takes"></music-keyboard>
+```
+
+- `<music-keyboard>`: multi-touch piano (slides between keys), metronome, count-in, recording, Web MIDI keyboards.
+  Emits `take` with `{bpm, notes: [{pitch, name, vel, start, dur, start_beat, dur_beats}], ...}`; with `save-to` each
+  take goes into that artifact hub collection. Attributes are documented at the top of `music.js`.
+- `<music-roll>`: set `.take` to show a piano roll with a play button.
+- `Music.play(notes, {bpm, sound})` plays in the browser (Web Audio); `Music.render(spec)` asks studio for a full render.
+
+Tags are immutable on jsDelivr, so each artifact keeps working with the version it was made with. Example: `web/examples/keyboard.html`.

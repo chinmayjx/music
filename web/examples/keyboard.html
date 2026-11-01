@@ -1,0 +1,26 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Keyboard input</title>
+<script src="../music.js"></script>
+<style>
+  body{margin:0;padding:12px;font:15px/1.4 system-ui,sans-serif;background:#faf9f5;color:#1f1e1d}
+  @media(prefers-color-scheme:dark){body{background:#1f1e1d;color:#f0eee6}}
+  h1{font-size:18px;margin:4px 0 10px} h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;opacity:.7;margin:18px 0 8px}
+  .take{margin-bottom:12px}
+</style></head>
+<body>
+  <h1>🎹 Keyboard input</h1>
+  <music-keyboard start="C4" octaves="2" bpm="100" count-in="1" save-to="takes"></music-keyboard>
+  <h2>Takes</h2>
+  <div id="takes"></div>
+  <script>
+    const list = document.getElementById("takes");
+    function show(take, top = true) {
+      const d = document.createElement("div"); d.className = "take";
+      const roll = document.createElement("music-roll"); d.appendChild(roll); roll.take = take;
+      top ? list.prepend(d) : list.append(d);
+    }
+    document.querySelector("music-keyboard").addEventListener("take", (e) => show(e.detail.take));
+    if (window.hub) hub.db.collection("takes").list({ limit: 20 }).then((rs) => rs.forEach((r) => show(r.data, false))).catch(() => {});
+  </script>
+</body></html>
