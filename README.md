@@ -29,6 +29,7 @@ For HTML artifacts; no dependencies. Load a tagged version from jsDelivr:
   Emits `take` with `{bpm, notes: [{pitch, name, vel, start, dur, start_beat, dur_beats}], ...}`; with `save-to` each
   take goes into that artifact hub collection. Attributes are documented at the top of `music.js`.
 - `<music-roll>`: set `.take` to show a piano roll with a play button.
+- `<music-recorder save-to="recordings">`: records the microphone (raw by default, for humming); saves the audio to the hub's file store and a record with its file id, duration and an optional note.
 - `Music.play(notes, {bpm, sound})` plays in the browser (Web Audio); `Music.render(spec)` asks studio for a full render.
 
-Tags are immutable on jsDelivr, so each artifact keeps working with the version it was made with. Example: `web/examples/keyboard.html`.
+Tags are immutable on jsDelivr, so each artifact keeps working with the version it was made with. Examples: `web/examples/keyboard.html`, `web/examples/voice.html`.

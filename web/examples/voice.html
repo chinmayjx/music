@@ -1,0 +1,49 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Voice input</title>
+<script src="../music.js"></script>
+<style>
+  body{margin:0;padding:12px;font:15px/1.4 system-ui,sans-serif;background:#faf9f5;color:#1f1e1d}
+  @media(prefers-color-scheme:dark){body{background:#1f1e1d;color:#f0eee6}}
+  h1{font-size:18px;margin:4px 0 4px} .sub{opacity:.7;font-size:13px;margin:0 0 12px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;opacity:.7;margin:20px 0 8px}
+  .rec{padding:12px;border:1px solid #8883;border-radius:14px;margin-bottom:10px}
+  .head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:13px;opacity:.85}
+  .note{margin:4px 0 6px;font-size:15px;word-break:break-word}
+  .del{font:inherit;font-size:13px;background:none;border:1px solid #8884;border-radius:8px;padding:3px 9px;color:inherit}
+  audio{width:100%;height:36px} .empty{opacity:.6;font-size:14px}
+</style></head>
+<body>
+  <h1>🎙️ Voice input</h1>
+  <p class="sub">Hum a tune, sing, or describe what you want in your own words. Each recording is saved here for Claude.</p>
+  <music-recorder save-to="recordings"></music-recorder>
+  <h2>Recordings</h2>
+  <div id="list"></div>
+  <script>
+    const list = document.getElementById("list");
+    const recs = window.hub ? hub.db.collection("recordings") : null;
+    const when = (iso) => new Date(iso).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    function empty(msg) {
+      const e = list.querySelector(".empty");
+      if (msg || !list.querySelector(".rec")) { if (!e) list.insertAdjacentHTML("beforeend", `<p class="empty">${msg || "No recordings yet."}</p>`); else if (msg) e.textContent = msg; }
+      else if (e) e.remove();
+    }
+    function show(r, top = true) {
+      const d = document.createElement("div"); d.className = "rec";
+      d.innerHTML = `<div class="head"><span>${when(r.data.created)} · ${r.data.duration} s</span><button class="del">Delete</button></div>
+        <div class="note"></div><audio controls></audio>`;
+      d.querySelector(".note").textContent = r.data.note || "";
+      // the file comes through the hub as a Blob (recordings are small, so load it right away)
+      hub.files.get(r.data.file_id).then((b) => (d.querySelector("audio").src = URL.createObjectURL(b))).catch(() => {});
+      d.querySelector(".del").onclick = async () => {
+        if (!confirm("Delete this recording?")) return;
+        await hub.files.delete(r.data.file_id).catch(() => {}); await recs.delete(r.id); d.remove(); empty();
+      };
+      top ? list.prepend(d) : list.append(d); empty();
+    }
+    document.querySelector("music-recorder").addEventListener("saved", (e) => show(e.detail.record));
+    if (recs) recs.list({ limit: 100 }).then((rs) => { rs.forEach((r) => show(r, false)); empty(); })
+      .catch((err) => empty("Recordings aren't saved here: " + err.message));
+    else empty("Recordings aren't saved here: open this in the artifact hub.");
+  </script>
+</body></html>

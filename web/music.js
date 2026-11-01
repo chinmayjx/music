@@ -14,6 +14,12 @@
  *
  *   <music-roll></music-roll>      roll.take = take  (or roll.notes / roll.bpm): a piano roll with a play button
  *
+ *   <music-recorder save-to="recordings" processing="off"></music-recorder>
+ *     records the microphone; processing "off" (default: raw voice, best for humming and pitch) or "on" (the
+ *     browser's noise suppression, echo cancellation and auto gain). With save-to, the audio goes into the hub's
+ *     file store and a record {file_id, name, mime, size, duration, note, created} into that collection; the
+ *     component's note field fills `note`. events: recording {blob, duration}, saved {record}
+ *
  *   Music.play(notes, {bpm, sound, from})    notes in beats ({pitch, start_beat, dur_beats}) or seconds ({start, dur});
  *                                            starts at the first note's beat unless `from` (a beat) is given
  *   Music.render(spec, {studio})             a studio render (POST /render) -> Blob (mp3)
@@ -355,8 +361,86 @@
     }
   }
 
+  // ---- <music-recorder> -----------------------------------------------------------------------------------
+  class MusicRecorder extends HTMLElement {
+    constructor() { super(); this.attachShadow({ mode: "open" }); }
+    connectedCallback() {
+      this.shadowRoot.innerHTML = `<style>${THEME}
+        .row{display:flex;gap:10px;align-items:center}
+        .rec{width:64px;height:64px;border-radius:50%;border:3px solid var(--line);background:var(--card);display:grid;place-items:center;cursor:pointer;flex:none}
+        .rec i{width:28px;height:28px;border-radius:50%;background:var(--accent);transition:all .15s}
+        .rec.on{border-color:var(--accent)} .rec.on i{width:22px;height:22px;border-radius:5px}
+        .side{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+        .time{font:600 22px/1 ui-monospace,monospace;font-variant-numeric:tabular-nums}
+        .meter{height:6px;border-radius:3px;background:var(--line);overflow:hidden}.meter b{display:block;height:100%;width:0;background:#4cc38a}
+        input{width:100%;box-sizing:border-box;margin-top:10px;padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:var(--bg)}
+        .status{color:var(--muted);font-size:13px;min-height:17px;margin-top:6px}</style>
+        <div class="row"><button class="rec" aria-label="Record"><i></i></button>
+          <div class="side"><div class="time">0:00</div><div class="meter"><b></b></div></div></div>
+        <input class="note" placeholder="What is this? (optional)" autocomplete="off">
+        <div class="status">Tap to record</div>`;
+      this.$ = (q) => this.shadowRoot.querySelector(q);
+      this.$(".rec").onclick = () => (this.rec && this.rec.state === "recording" ? this.stop() : this.start());
+    }
+    status(t) { this.$(".status").textContent = t; }
+    async start() {
+      const on = this.getAttribute("processing") === "on";
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: on, noiseSuppression: on, autoGainControl: on } });
+      } catch (err) {
+        return this.status(err.name === "NotAllowedError"
+          ? "Microphone not allowed. If Android just asked, allow it and tap Record again."
+          : "Microphone unavailable: " + err.message);
+      }
+      const types = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus", "audio/webm"];
+      const mime = types.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+      this.chunks = [];
+      this.rec = new MediaRecorder(this.stream, mime ? { mimeType: mime } : undefined);
+      this.rec.ondataavailable = (e) => e.data.size && this.chunks.push(e.data);
+      this.rec.onstop = () => this.finish();
+      this.rec.start(1000);
+      this.t0 = Date.now();
+      this.$(".rec").classList.add("on"); this.status("Recording… tap to stop");
+      const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+      this.tick = setInterval(() => (this.$(".time").textContent = fmt((Date.now() - this.t0) / 1000)), 250);
+      const c = audio(), an = c.createAnalyser(); an.fftSize = 1024;
+      this.src = c.createMediaStreamSource(this.stream); this.src.connect(an);
+      const buf = new Float32Array(an.fftSize);
+      const loop = () => { an.getFloatTimeDomainData(buf);
+        this.$(".meter b").style.width = Math.min(100, Math.sqrt(buf.reduce((a, v) => a + v * v, 0) / buf.length) * 400) + "%";
+        this.raf = requestAnimationFrame(loop); };
+      loop();
+    }
+    stop() {
+      this.rec.stop(); this.stream.getTracks().forEach((t) => t.stop());
+      clearInterval(this.tick); cancelAnimationFrame(this.raf); this.src && this.src.disconnect();
+      this.$(".meter b").style.width = 0; this.$(".rec").classList.remove("on");
+    }
+    async finish() {
+      const duration = Math.round((Date.now() - this.t0) / 100) / 10;
+      const type = (this.rec.mimeType || "audio/webm").split(";")[0];
+      const blob = new Blob(this.chunks, { type });
+      this.dispatchEvent(new CustomEvent("recording", { detail: { blob, duration } }));
+      const to = this.getAttribute("save-to");
+      if (!to) return this.status(`Recorded ${duration} s`);
+      if (!window.hub) return this.status("Not saved: open this in the artifact hub.");
+      const note = this.$(".note").value.trim();
+      const stamp = new Date().toISOString();
+      const name = `${stamp.slice(0, 19).replace(/[:T]/g, "-")}.${type.includes("mp4") ? "m4a" : type.split("/")[1]}`;
+      try {
+        this.status("Saving…");
+        const f = await window.hub.files.put(blob, name);
+        const record = await window.hub.db.collection(to).add({ file_id: f.id, name, mime: type, size: f.size, duration, note, created: stamp });
+        this.$(".note").value = ""; this.$(".time").textContent = "0:00";
+        this.status(`Saved ✓ ${duration} s`);
+        this.dispatchEvent(new CustomEvent("saved", { detail: { record } }));
+      } catch (err) { this.status("Couldn't save: " + err.message); }
+    }
+  }
+
   customElements.define("music-keyboard", MusicKeyboard);
   customElements.define("music-roll", MusicRoll);
+  customElements.define("music-recorder", MusicRecorder);
   window.Music = { play, render, noteOn, noteName, midi, sounds: Object.keys(SOUNDS), studio: STUDIO,
     output: () => (audio(), out) };   // the master bus, for meters or recording
 })();
