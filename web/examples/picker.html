@@ -1,0 +1,78 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pick one</title>
+<style>
+  body{margin:0;padding:12px;font:15px/1.4 system-ui,sans-serif;background:#faf9f5;color:#1f1e1d}
+  @media(prefers-color-scheme:dark){body{background:#1f1e1d;color:#f0eee6}}
+  h1{font-size:18px;margin:4px 0 4px} .q{opacity:.8;margin:0 0 12px}
+  .opt{padding:12px;border:1px solid #8883;border-radius:14px;margin-bottom:10px}
+  .opt.picked{border-color:#d97757;box-shadow:0 0 0 1px #d97757}
+  .top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .label{font-weight:600} .detail{opacity:.7;font-size:13px;margin:2px 0 6px}
+  audio{width:100%;height:36px}
+  button{font:inherit;font-size:14px;border-radius:10px;padding:7px 12px;border:1px solid #8885;background:none;color:inherit}
+  button.pick{background:#d97757;border-color:#d97757;color:#fff}
+  textarea{width:100%;box-sizing:border-box;min-height:70px;padding:9px 10px;border-radius:10px;border:1px solid #8885;background:none;color:inherit;font:inherit}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;opacity:.7;margin:18px 0 8px}
+  .status{opacity:.7;font-size:13px;min-height:18px;margin-top:6px} .past{font-size:14px;opacity:.85;margin-bottom:6px}
+</style></head>
+<body>
+  <h1 id="title">Pick one</h1>
+  <p class="q" id="question"></p>
+  <div id="options"></div>
+  <h2>Anything to add?</h2>
+  <textarea id="comment" placeholder="e.g. B, but brighter. Or: none of these, more like…"></textarea>
+  <button id="send">Send</button>
+  <div class="status" id="status"></div>
+  <h2>Your picks</h2>
+  <div id="picks"></div>
+  <script>
+    /* Options live in this artifact's data, so the same page works for any choice:
+       collection "question": {title, text}; collection "options": {label, detail, file_id}
+       answers go to collection "picks": {choice, option_id, comment, created} */
+    const $ = (id) => document.getElementById(id);
+    let chosen = null;
+    const status = (t) => ($("status").textContent = t);
+    const when = (iso) => new Date(iso).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    async function load() {
+      if (!window.hub) return status("Open this in the artifact hub.");
+      const [q] = await hub.db.collection("question").list({ limit: 1 });
+      if (q) { $("title").textContent = q.data.title || "Pick one"; $("question").textContent = q.data.text || ""; }
+      const opts = await hub.db.collection("options").list({ order: "asc", limit: 20 });
+      for (const o of opts) {
+        const d = document.createElement("div"); d.className = "opt";
+        d.innerHTML = `<div class="top"><span class="label"></span><button class="pick">This one</button></div><div class="detail"></div><audio controls></audio>`;
+        d.querySelector(".label").textContent = o.data.label; d.querySelector(".detail").textContent = o.data.detail || "";
+        if (o.data.file_id) hub.files.get(o.data.file_id).then((b) => (d.querySelector("audio").src = URL.createObjectURL(b)));
+        else d.querySelector("audio").remove();
+        // only one plays at a time
+        d.querySelector("audio")?.addEventListener("play", (e) => document.querySelectorAll("audio").forEach((a) => a !== e.target && a.pause()));
+        d.querySelector(".pick").onclick = () => {
+          document.querySelectorAll(".opt").forEach((x) => x.classList.remove("picked"));
+          d.classList.add("picked"); chosen = o; status(`${o.data.label} selected. Add a comment if you like, then Send.`);
+        };
+        $("options").append(d);
+      }
+      if (!opts.length) status("No options yet.");
+      showPicks();
+    }
+    async function showPicks() {
+      const ps = await hub.db.collection("picks").list({ limit: 20 });
+      $("picks").innerHTML = ps.length ? "" : '<div class="past">None yet.</div>';
+      for (const p of ps) {
+        const d = document.createElement("div"); d.className = "past";
+        d.textContent = `${when(p.data.created)} · ${p.data.choice || "no pick"}${p.data.comment ? " · “" + p.data.comment + "”" : ""}`;
+        $("picks").append(d);
+      }
+    }
+    $("send").onclick = async () => {
+      const comment = $("comment").value.trim();
+      if (!chosen && !comment) return status("Pick one or write something first.");
+      try {
+        await hub.db.collection("picks").add({ choice: chosen ? chosen.data.label : null, option_id: chosen ? chosen.id : null, comment, created: new Date().toISOString() });
+        $("comment").value = ""; status("Sent ✓ Claude will read it."); showPicks();
+      } catch (e) { status("Couldn't send: " + e.message); }
+    };
+    load().catch((e) => status("Couldn't load: " + e.message));
+  </script>
+</body></html>
