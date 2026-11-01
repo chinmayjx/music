@@ -43,8 +43,17 @@
         const d = document.createElement("div"); d.className = "opt";
         d.innerHTML = `<div class="top"><span class="label"></span><button class="pick">This one</button></div><div class="detail"></div><audio controls></audio>`;
         d.querySelector(".label").textContent = o.data.label; d.querySelector(".detail").textContent = o.data.detail || "";
-        if (o.data.file_id) hub.files.get(o.data.file_id).then((b) => (d.querySelector("audio").src = URL.createObjectURL(b)));
-        else d.querySelector("audio").remove();
+        if (o.data.file_id) {
+          // the audio comes through the hub page as a Blob: say so while it loads, and say why if it fails
+          const detail = d.querySelector(".detail"), base = detail.textContent;
+          detail.textContent = base + " · loading audio…";
+          const t0 = Date.now();
+          hub.files.get(o.data.file_id)
+            .then((b) => { d.querySelector("audio").src = URL.createObjectURL(b);
+              detail.textContent = `${base} · ready (${Math.round(b.size / 1024)} KB in ${((Date.now() - t0) / 1000).toFixed(1)} s)`; })
+            .catch((e) => (detail.textContent = `${base} · couldn't load audio: ${e.message}`));
+          d.querySelector("audio").addEventListener("error", (e) => (detail.textContent = `${base} · can't play: ${e.target.error && e.target.error.message || "error " + (e.target.error && e.target.error.code)}`));
+        } else d.querySelector("audio").remove();
         // only one plays at a time
         d.querySelector("audio")?.addEventListener("play", (e) => document.querySelectorAll("audio").forEach((a) => a !== e.target && a.pause()));
         d.querySelector(".pick").onclick = () => {
