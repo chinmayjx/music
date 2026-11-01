@@ -42,7 +42,7 @@ def rms(a):
     return float(np.sqrt((a ** 2).mean()) + 1e-9)
 
 
-def mix(stems, path, lowpass_hz=None):
+def master(stems, lowpass_hz=None):
     """stems: [(audio, level_db)] — each stem normalised to equal loudness, then set to level_db."""
     n = max(a.shape[1] for a, _ in stems)
     out = np.zeros((2, n))
@@ -52,9 +52,23 @@ def mix(stems, path, lowpass_hz=None):
         from scipy.signal import butter, sosfilt
         out = sosfilt(butter(2, lowpass_hz, fs=SR, output="sos"), out, axis=1)
     out = np.tanh(out * 1.5) / 1.5                      # gentle saturation
-    out *= 0.89 / np.abs(out).max()                     # peak at -1 dBFS
-    wav = path.rsplit(".", 1)[0] + ".wav"
-    sf.write(wav, out.T, SR)
-    if path.endswith(".mp3"):
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", wav, "-b:a", "192k", path], check=True)
+    return out * 0.89 / (np.abs(out).max() + 1e-9)       # peak at -1 dBFS
+
+
+def encode(out, fmt="mp3"):
+    """Stereo float array -> mp3 or wav bytes."""
+    with tempfile.TemporaryDirectory() as d:
+        wav = os.path.join(d, "a.wav")
+        sf.write(wav, out.T, SR, subtype="PCM_16")
+        if fmt == "wav":
+            return open(wav, "rb").read()
+        mp3 = os.path.join(d, "a.mp3")
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", wav, "-b:a", "192k", mp3], check=True)
+        return open(mp3, "rb").read()
+
+
+def mix(stems, path, lowpass_hz=None):
+    """Master stems and write to path (.mp3 or .wav)."""
+    data = encode(master(stems, lowpass_hz), "mp3" if path.endswith(".mp3") else "wav")
+    open(path, "wb").write(data)
     return path

@@ -1,4 +1,6 @@
 """Track 01 — lo-fi loop, 85 BPM, ii–V–I–VI in C (Dm9 · G13 · Cmaj9 · A7b13)."""
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "studio"))
 import random
 import numpy as np
 from scipy.signal import butter, sosfilt

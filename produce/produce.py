@@ -2,6 +2,8 @@
 
 usage: python3 produce.py <recording file in the recordings dir>
 """
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "studio"))
 import json, os, subprocess, sys, tempfile, wave
 from datetime import datetime
 from zoneinfo import ZoneInfo

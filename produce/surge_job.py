@@ -1,4 +1,6 @@
 """Devbox side: hum -> notes + chords as JSON for the laptop's Surge renderer."""
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "studio"))
 import json, os, subprocess, sys, tempfile
 import pitch as P
 from produce import REC, CHORDS, pick_chords

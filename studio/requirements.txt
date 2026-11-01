@@ -1,0 +1,7 @@
+dawdreamer
+numpy
+scipy
+soundfile
+fastapi
+uvicorn
+python-multipart

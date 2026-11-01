@@ -1,4 +1,6 @@
 """Laptop side: render a hum job (notes + chords JSON) with Surge XT patches."""
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "studio"))
 import json, sys
 from surgekit import render, mix
 

@@ -4,6 +4,8 @@ usage: python edm.py job.json out.mp3 <style>     style: house | trance
 The hum is used as a motif (its note shape), not a literal performance: notes are
 re-timed onto a 16th-note grid at club tempo and arranged intro / build / drop / break / drop.
 """
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "studio"))
 import json, sys
 import numpy as np
 from scipy.signal import butter, sosfilt
