@@ -14,7 +14,8 @@
  *
  *   <music-roll></music-roll>      roll.take = take  (or roll.notes / roll.bpm): a piano roll with a play button
  *
- *   Music.play(notes, {bpm, sound})          notes in beats ({pitch, start_beat, dur_beats}) or seconds ({start, dur})
+ *   Music.play(notes, {bpm, sound, from})    notes in beats ({pitch, start_beat, dur_beats}) or seconds ({start, dur});
+ *                                            starts at the first note's beat unless `from` (a beat) is given
  *   Music.render(spec, {studio})             a studio render (POST /render) -> Blob (mp3)
  *   Music.noteName(60) -> "C4", Music.midi("C#4") -> 61
  */
@@ -111,12 +112,20 @@
     o.connect(g); g.connect(out); o.start(at); o.stop(at + 0.06);
   }
 
-  // Play notes; returns {stop(), done: Promise}.
-  function play(notes, { bpm = 100, sound = "epiano" } = {}) {
+  // Where playback and the roll begin: the beat of the first note, so silence before it (a pause after
+  // tapping Record) isn't played, while notes keep their place relative to the beat.
+  const startOf = (n, spb) => (n.start_beat != null ? n.start_beat * spb : n.start || 0);
+  function firstBeat(notes, spb) {
+    return notes.length ? Math.floor(Math.min(...notes.map((n) => startOf(n, spb))) / spb + 1e-6) : 0;
+  }
+
+  // Play notes; returns {stop(), done: Promise}. from: the beat to start at (default: the first note's beat).
+  function play(notes, { bpm = 100, sound = "epiano", from } = {}) {
     const c = audio(), t0 = c.currentTime + 0.05, spb = 60 / bpm;
+    const skip = (from ?? firstBeat(notes, spb)) * spb;
     let end = 0;
     const voices = notes.map((n) => {
-      const start = n.start_beat != null ? n.start_beat * spb : n.start || 0;
+      const start = startOf(n, spb) - skip;
       const dur = n.dur_beats != null ? n.dur_beats * spb : n.dur || spb;
       end = Math.max(end, start + dur);
       const v = noteOn(midi(n.pitch), (n.vel || 100) / 127, sound, t0 + start);
@@ -327,13 +336,14 @@
       const ns = this._notes, spb = 60 / this._bpm;
       const beats = (n) => [n.start_beat != null ? n.start_beat : (n.start || 0) / spb, n.dur_beats != null ? n.dur_beats : (n.dur || spb) / spb];
       const lo = ns.length ? Math.min(...ns.map((n) => midi(n.pitch))) - 1 : 59, hi = ns.length ? Math.max(...ns.map((n) => midi(n.pitch))) + 1 : 72;
-      const len = Math.max(4, Math.ceil(Math.max(0, ...ns.map((n) => beats(n).reduce((a, b) => a + b))) / 4) * 4);
+      const from = firstBeat(ns, spb);
+      const len = Math.max(4, Math.ceil(Math.max(0, ...ns.map((n) => beats(n).reduce((a, b) => a + b) - from)) / 4) * 4);
       const rows = hi - lo + 1, H = Math.max(80, Math.min(220, rows * 10)), rh = H / rows;
-      const grid = Array.from({ length: len + 1 }, (_, b) => `<line x1="${(b / len) * 100}%" x2="${(b / len) * 100}%" y1="0" y2="${H}" stroke="var(--line)" stroke-width="${b % 4 ? 0.5 : 1.5}"/>`).join("");
+      const grid = Array.from({ length: len + 1 }, (_, b) => `<line x1="${(b / len) * 100}%" x2="${(b / len) * 100}%" y1="0" y2="${H}" stroke="var(--line)" stroke-width="${(b + from) % 4 ? 0.5 : 1.5}"/>`).join("");
       const lanes = Array.from({ length: rows }, (_, i) => NAMES[(hi - i) % 12].includes("#") ? `<rect x="0" width="100%" y="${i * rh}" height="${rh}" fill="var(--card)"/>` : "").join("");
       const bars = ns.map((n) => { const [s, d] = beats(n), p = midi(n.pitch);
-        return `<rect x="${(s / len) * 100}%" width="${Math.max(0.4, (d / len) * 100)}%" y="${(hi - p) * rh + 1}" height="${rh - 2}" rx="2" fill="var(--accent)"><title>${noteName(p)}</title></rect>`; }).join("");
-      this.shadowRoot.innerHTML = `<style>${THEME}.wrap{display:flex;gap:8px;align-items:flex-start}svg{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:8px}
+        return `<rect x="${((s - from) / len) * 100}%" width="${Math.max(0.4, (d / len) * 100)}%" y="${(hi - p) * rh + 1}" height="${rh - 2}" rx="2" fill="var(--accent)"><title>${noteName(p)}</title></rect>`; }).join("");
+      this.shadowRoot.innerHTML = `<style>${THEME}.wrap{display:flex;gap:8px;align-items:flex-start}svg{flex:1;min-width:0;width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px}
         .names{font-size:11px;color:var(--muted)}</style>
         <div class="wrap"><button class="btn" aria-label="Play">▶</button>
         <svg height="${H}" preserveAspectRatio="none">${lanes}${grid}${bars}</svg></div>
