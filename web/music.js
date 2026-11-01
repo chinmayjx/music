@@ -380,29 +380,39 @@
         <input class="note" placeholder="What is this? (optional)" autocomplete="off">
         <div class="status">Tap to record</div>`;
       this.$ = (q) => this.shadowRoot.querySelector(q);
-      this.$(".rec").onclick = () => (this.rec && this.rec.state === "recording" ? this.stop() : this.start());
+      this.$(".rec").onclick = () => (this.recording ? this.stop() : this.start());
     }
     status(t) { this.$(".status").textContent = t; }
     async start() {
       const on = this.getAttribute("processing") === "on";
+      // In the artifact hub the page around the artifact records (a sandboxed frame can't open the microphone);
+      // anywhere else, record here.
+      this.viaHub = !!(window.hub && window.hub.media);
       try {
-        this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: on, noiseSuppression: on, autoGainControl: on } });
+        if (this.viaHub) {
+          this.hubRec = await window.hub.media.record({ processing: on });
+          this.offLevel = window.hub.media.onLevel((v) => (this.$(".meter b").style.width = v * 100 + "%"));
+        } else {
+          this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: on, noiseSuppression: on, autoGainControl: on } });
+          this.startLocal();
+        }
       } catch (err) {
-        return this.status(err.name === "NotAllowedError"
-          ? "Microphone not allowed. If Android just asked, allow it and tap Record again."
+        return this.status(/not allowed|NotAllowed/i.test(err.name + err.message)
+          ? "Microphone not allowed. If you were just asked, allow it and tap Record again."
           : "Microphone unavailable: " + err.message);
       }
+      this.recording = true; this.t0 = Date.now();
+      this.$(".rec").classList.add("on"); this.status("Recording… tap to stop");
+      const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+      this.tick = setInterval(() => (this.$(".time").textContent = fmt((Date.now() - this.t0) / 1000)), 250);
+    }
+    startLocal() {
       const types = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus", "audio/webm"];
       const mime = types.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
       this.chunks = [];
       this.rec = new MediaRecorder(this.stream, mime ? { mimeType: mime } : undefined);
       this.rec.ondataavailable = (e) => e.data.size && this.chunks.push(e.data);
-      this.rec.onstop = () => this.finish();
       this.rec.start(1000);
-      this.t0 = Date.now();
-      this.$(".rec").classList.add("on"); this.status("Recording… tap to stop");
-      const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-      this.tick = setInterval(() => (this.$(".time").textContent = fmt((Date.now() - this.t0) / 1000)), 250);
       const c = audio(), an = c.createAnalyser(); an.fftSize = 1024;
       this.src = c.createMediaStreamSource(this.stream); this.src.connect(an);
       const buf = new Float32Array(an.fftSize);
@@ -411,15 +421,26 @@
         this.raf = requestAnimationFrame(loop); };
       loop();
     }
-    stop() {
-      this.rec.stop(); this.stream.getTracks().forEach((t) => t.stop());
+    async stop() {
+      this.recording = false;
       clearInterval(this.tick); cancelAnimationFrame(this.raf); this.src && this.src.disconnect();
       this.$(".meter b").style.width = 0; this.$(".rec").classList.remove("on");
+      let out;
+      if (this.viaHub) {
+        this.offLevel && this.offLevel();
+        this.status("Finishing…");
+        try { out = await this.hubRec.stop(); } catch (err) { return this.status("Recording failed: " + err.message); }
+      } else {
+        out = await new Promise((r) => { this.rec.onstop = () => {
+          const type = (this.rec.mimeType || "audio/webm").split(";")[0];
+          r({ blob: new Blob(this.chunks, { type }), mime: type, duration: Math.round((Date.now() - this.t0) / 100) / 10 }); };
+          this.rec.stop(); });
+        this.stream.getTracks().forEach((t) => t.stop());
+      }
+      this.finish(out);
     }
-    async finish() {
-      const duration = Math.round((Date.now() - this.t0) / 100) / 10;
-      const type = (this.rec.mimeType || "audio/webm").split(";")[0];
-      const blob = new Blob(this.chunks, { type });
+    async finish({ blob, mime, duration }) {
+      const type = mime || blob.type || "audio/webm";
       this.dispatchEvent(new CustomEvent("recording", { detail: { blob, duration } }));
       const to = this.getAttribute("save-to");
       if (!to) return this.status(`Recorded ${duration} s`);
