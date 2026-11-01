@@ -6,7 +6,10 @@
   body{margin:0;padding:12px;font:15px/1.4 system-ui,sans-serif;background:#faf9f5;color:#1f1e1d}
   @media(prefers-color-scheme:dark){body{background:#1f1e1d;color:#f0eee6}}
   h1{font-size:18px;margin:4px 0 10px} h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;opacity:.7;margin:18px 0 8px}
-  .take{margin-bottom:12px}
+  .take{margin-bottom:14px}
+  .head{display:flex;justify-content:space-between;align-items:center;font-size:13px;opacity:.85;margin-bottom:4px}
+  .del{font:inherit;font-size:13px;background:none;border:1px solid #8884;border-radius:8px;padding:3px 9px;color:inherit}
+  .empty{opacity:.6;font-size:14px}
 </style></head>
 <body>
   <h1>🎹 Keyboard input</h1>
@@ -15,12 +18,29 @@
   <div id="takes"></div>
   <script>
     const list = document.getElementById("takes");
-    function show(take, top = true) {
+    const takes = window.hub ? hub.db.collection("takes") : null;
+    const when = (iso) => new Date(iso).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    function show(take, id, top = true) {
       const d = document.createElement("div"); d.className = "take";
+      d.innerHTML = `<div class="head"><span>${when(take.created)} · ${take.bpm} BPM · ${take.notes.length} notes</span></div>`;
+      if (id && takes) {
+        const del = document.createElement("button"); del.className = "del"; del.textContent = "Delete";
+        del.onclick = async () => { if (!confirm("Delete this take?")) return; await takes.delete(id); d.remove(); empty(); };
+        d.querySelector(".head").appendChild(del);
+      }
       const roll = document.createElement("music-roll"); d.appendChild(roll); roll.take = take;
-      top ? list.prepend(d) : list.append(d);
+      top ? list.prepend(d) : list.append(d); empty();
     }
-    document.querySelector("music-keyboard").addEventListener("take", (e) => show(e.detail.take));
-    if (window.hub) hub.db.collection("takes").list({ limit: 20 }).then((rs) => rs.forEach((r) => show(r.data, false))).catch(() => {});
+    function empty(msg) {
+      const e = list.querySelector(".empty");
+      if (msg || !list.querySelector(".take")) { if (!e) list.insertAdjacentHTML("beforeend", `<p class="empty">${msg || "No takes yet. Tap Record and play."}</p>`); else if (msg) e.textContent = msg; }
+      else if (e) e.remove();
+    }
+    const kb = document.querySelector("music-keyboard");
+    // saved takes arrive with their record id (deletable); without the hub, show the take unsaved
+    kb.addEventListener(takes ? "saved" : "take", (e) => takes ? show(e.detail.record.data, e.detail.record.id) : show(e.detail.take));
+    if (takes) takes.list({ limit: 50 }).then((rs) => { rs.forEach((r) => show(r.data, r.id, false)); empty(); })
+      .catch((err) => empty("Takes aren't saved here: " + err.message));
+    else empty("Takes aren't saved here: open this in the artifact hub.");
   </script>
 </body></html>
