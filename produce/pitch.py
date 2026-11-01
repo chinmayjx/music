@@ -155,7 +155,7 @@ def snap_to_scale(notes):
             for mode, sc in (("major", MAJOR), ("minor", MINOR)):
                 grid = np.array([tonic + s + 12 * o for o in range(-1, 11) for s in sc])
                 d = np.abs((v - off)[:, None] - grid[None]).min(1)
-                cost = (d * w).sum()
+                cost = (d * w).sum() + 0.3 * abs(off) * w.sum()   # prefer standard tuning when ambiguous
                 if best is None or cost < best[0]:
                     best = (cost, off, tonic, mode, grid)
     _, off, tonic, mode, grid = best
@@ -164,13 +164,35 @@ def snap_to_scale(notes):
     return NAMES[tonic], mode, off
 
 
-def transcribe(path):
-    """WAV -> (notes, (tonic, mode, offset)). Fine segmentation, then snap to the best-fitting scale."""
+def snap_chromatic(notes):
+    """No scale assumption: nearest semitone after correcting the singer's overall tuning."""
+    v = np.array([n["hz_midi"] for n in notes])
+    off = tuning_offset(v)
+    for n in notes:
+        n["pitch"] = int(round(n["hz_midi"] - off))
+    return off
+
+
+def transcribe(path, scale=True):
+    """WAV -> (notes, (tonic, mode, offset)). Fine segmentation, then snap to the best-fitting scale
+    (or, with scale=False, to the nearest semitone; tonic and mode are still estimated)."""
     x, sr = read_wav(path)
     t, m, _ = yin(x, sr)
     ms = median(m)
     notes = segment(t, ms)
+    # octave errors: a short note ~12 semitones off the surrounding notes is the tracker, not the singer
+    def octave_slip(i):
+        x, d = notes[i]["hz_midi"], notes[i]["end"] - notes[i]["start"]
+        same = lambda j: abs(notes[j]["start"] - notes[i]["start"]) < 1.5 and all(
+            notes[k + 1]["start"] - notes[k]["end"] < 0.5 for k in range(min(i, j), max(i, j)))
+        nb = [notes[j]["hz_midi"] for j in (i - 1, i + 1) if 0 <= j < len(notes) and same(j)]
+        near = [notes[j]["hz_midi"] for j in range(i - 3, i + 4) if j != i and 0 <= j < len(notes) and same(j)]
+        return (d < 0.2 and nb and all(abs(x - o) >= 7 for o in nb)
+                and any(abs(abs(x - o) - 12) < 2 for o in nb) and abs(x - float(np.median(near))) > 6)
+    notes = [n for i, n in enumerate(notes) if not octave_slip(i)]
     key = snap_to_scale(notes)
+    if not scale:
+        snap_chromatic(notes)
     out = []
     for n in notes:  # snapping can make neighbours equal: merge them
         if out and n["pitch"] == out[-1]["pitch"] and n["start"] - out[-1]["end"] < 0.12:
