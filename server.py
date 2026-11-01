@@ -46,7 +46,8 @@ def listing():
         st = os.stat(p)
         out.append({"file": f, "name": m.get("name") or f, "size": st.st_size,
                     "created": m.get("created") or datetime.fromtimestamp(st.st_mtime, TZ).isoformat(timespec="seconds"),
-                    "duration": m.get("duration"), "source": m.get("source", "file")})
+                    "duration": m.get("duration"), "source": m.get("source", "file"),
+                    **{k: m[k] for k in ("notes", "key", "chords", "from") if k in m}})
     return sorted(out, key=lambda x: x["created"], reverse=True)
 
 

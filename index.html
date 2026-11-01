@@ -166,9 +166,14 @@ async function load() {
     const li = document.createElement("li"); li.className = "card";
     li.innerHTML = `<div class="top"><div><div class="title"></div><div class="meta"></div></div>
       <button class="del">Delete</button></div><audio controls preload="none"></audio>`;
-    li.querySelector(".title").textContent = (f.source === "mic" ? "🎙️ " : "📁 ") + f.name;
+    li.querySelector(".title").textContent = ({ mic: "🎙️ ", claude: "🎹 " }[f.source] || "📁 ") + f.name;
     li.querySelector(".meta").textContent =
       [when(f.created), f.duration ? fmt(f.duration) : null, size(f.size), f.file].filter(Boolean).join(" · ");
+    if (f.notes) {
+      const d = document.createElement("div"); d.className = "meta";
+      d.textContent = `Heard: ${f.notes}` + (f.key ? ` · ${f.key}` : "") + (f.chords ? ` · chords ${f.chords}` : "");
+      li.querySelector(".top > div").appendChild(d);
+    }
     li.querySelector("audio").src = "files/" + encodeURIComponent(f.file);
     li.querySelector(".del").onclick = async () => {
       if (!confirm(`Delete "${f.name}"?`)) return;
